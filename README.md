@@ -67,6 +67,8 @@ Para ejecutar el proyecto localmente o en producción se requieren las siguiente
 GROQ_API_KEY=...
 PINECONE_API_KEY=...
 ```
+## 👤 Autor
+Juan Manuel Orellana
 
 ---
 
