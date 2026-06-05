@@ -8,7 +8,7 @@
 
 >> Consultá legislación, normas ARN, protección radiológica y tratados internacionales en lenguaje natural.
 
-🔗 **Demo:** https://chatbot-kappa-wheat-30.vercel.app
+🔗 **Demo:** https://norma-ar.vercel.app
 
 ---
 
