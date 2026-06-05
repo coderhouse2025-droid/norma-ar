@@ -367,9 +367,6 @@ git clone https://github.com/coderhouse2025-droid/Chatbot.git
 cd Chatbot
 npm install
 ```
-
-La app estará disponible en `http://localhost:5173`. Las funciones serverless de `/api` se ejecutan localmente gracias a la configuración del proxy en `vite.config.js`.
-
 ---
 
 ## 🧩 Roadmap
