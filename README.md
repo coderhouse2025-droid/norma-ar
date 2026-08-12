@@ -1,6 +1,7 @@
 # ⚛️ normaAR — Asistente IA sobre Normativa Nuclear Argentina
 
-<img width="2752" height="1536" alt="Banner - Chatbot" src="https://github.com/user-attachments/assets/9afd8b8b-7842-42c5-a7f4-99b1744d33c4" />
+<img width="2744" height="1490" alt="Chatbot" src="https://github.com/user-attachments/assets/c0b8568d-82a6-4e6c-b8e9-e5b3e972b62b" />
+
 
 [![Demo en vivo](https://img.shields.io/badge/Demo-Live-brightgreen?style=for-the-badge)](https://chatbot-kappa-wheat-30.vercel.app)
 [![RAG](https://img.shields.io/badge/Arquitectura-RAG-blueviolet?style=for-the-badge)](#arquitectura-rag)
