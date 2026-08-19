@@ -98,8 +98,6 @@ El tier gratuito de Pinecone soporta hasta 100.000 vectores y 1 índice, suficie
 
 ### 3. OpenAI GPT-OSS 120B vía Groq — no GPT-4, no Claude
 
-> **Nota de mantenimiento (agosto 2026):** este proyecto usaba originalmente **LLaMA 3.3 70B**. Groq anunció la baja de ese modelo (junto con LLaMA 3.1 8B Instant) en junio de 2026 y recomendó migrar a `openai/gpt-oss-120b` o `qwen/qwen3.6-27b`. Si en algún momento el chatbot empieza a responder "No se pudo generar la respuesta" en producción, lo primero que hay que revisar son los **Logs** del proyecto en Vercel: si ahí aparece un error 404 de Groq mencionando el modelo, es señal de que volvió a pasar lo mismo y hay que actualizar el nombre del modelo en `api/chat.js`.
-
 **¿Por qué un LLM open-weights?**
 
 GPT-OSS 120B es un modelo de lenguaje de pesos abiertos publicado por OpenAI, disponible vía la API de Groq. Esto significa que puede ejecutarse en infraestructura de terceros sin depender de un único proveedor cerrado como OpenAI directamente o Anthropic. Para un sistema de consulta sobre documentación oficial del Estado argentino, la independencia de proveedor sigue siendo un criterio técnico relevante.
