@@ -1,7 +1,3 @@
-## norma-ar
-
-Asistente IA sobre Normativa Nuclear Argentina
-
 <img width="1672" height="940" alt="Banner" src="https://github.com/user-attachments/assets/35ebb4ad-63a8-42b1-aec7-f6165b83fb27" />
 
 
