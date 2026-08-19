@@ -1,6 +1,9 @@
-# norma-ar — Asistente IA sobre Normativa Nuclear Argentina
+## norma-ar
 
-<img width="1672" height="941" alt="norma-ar — El nuevo estándar de consulta sobre normativa nuclear argentina" src="./Chatbot.png" />
+Asistente IA sobre Normativa Nuclear Argentina
+
+<img width="1672" height="940" alt="Banner" src="https://github.com/user-attachments/assets/5ef22f81-cf0f-4ff8-a1ec-3f856981b5ba" />
+
 
 [![Demo en vivo](https://img.shields.io/badge/Demo-Live-brightgreen?style=for-the-badge)](https://norma-ar.vercel.app)
 [![RAG](https://img.shields.io/badge/Arquitectura-RAG-blueviolet?style=for-the-badge)](#arquitectura-rag)
