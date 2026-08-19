@@ -1,6 +1,7 @@
 # norma-ar — Asistente IA sobre Normativa Nuclear Argentina
 
-<img width="2752" height="1536" alt="image" src="https://github.com/user-attachments/assets/ba727b1b-5988-4590-9847-a1128be3900b" />
+<img width="1672" height="940" alt="ChatGPT Image 19 ago 2026, 11_03_40" src="https://github.com/user-attachments/assets/a8368616-5bae-40ef-85aa-c50477d04c31" />
+
 
 
 [![Demo en vivo](https://img.shields.io/badge/Demo-Live-brightgreen?style=for-the-badge)](https://norma-ar.vercel.app)
