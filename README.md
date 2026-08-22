@@ -39,6 +39,8 @@ Este chatbot responde consultas técnicas y jurídicas sobre la normativa nuclea
 
 Las respuestas se generan combinando un modelo de lenguaje (GPT-OSS 120B, corriendo en la infraestructura de Groq) con búsqueda semántica sobre documentos oficiales indexados — una arquitectura conocida como **RAG (Retrieval-Augmented Generation)**. Cada respuesta cita la norma o ley en la que se basó, mostrada como una etiqueta separada debajo del texto para que se pueda verificar de un vistazo.
 
+<img width="1024" height="1536" alt="ChatGPT Image 22 ago 2026, 01_28_32 p m" src="https://github.com/user-attachments/assets/0355da97-d466-44f8-a539-afe032ef6c6d" />
+
 ---
 
 ## 💼 Caso de negocio
