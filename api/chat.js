@@ -151,7 +151,7 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         model: "openai/gpt-oss-120b",
         max_tokens: 3000,
-        temperature: 0.7,
+        temperature: 0.2,
         stream: true,
         messages: [{ role: "system", content: systemConContexto }, ...messages],
       }),
