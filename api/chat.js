@@ -109,7 +109,7 @@ export default async function handler(req, res) {
             "X-Pinecone-API-Version": "2025-10",
           },
           body: JSON.stringify({
-            query: { inputs: { text: ultimaPregunta }, top_k: 8 },
+            query: { inputs: { text: ultimaPregunta }, top_k: 6 },
             // El índice solo guarda "text" y "source" como metadata — no hay número
             // de página. Si en algún momento se agrega esa metadata al pipeline de
             // indexación, sumar el campo acá (ej. "page" o "pagina") vuelve a habilitar
