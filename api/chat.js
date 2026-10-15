@@ -153,7 +153,7 @@ export default async function handler(req, res) {
         max_tokens: 2000,
         temperature: 0.2,
         stream: true,
-        messages: [{ role: "system", content: systemConContexto }, ...messages],
+        messages: [{ role: "system", content: systemConContexto }, ...messages.slice(-4)],
       }),
     });
 
