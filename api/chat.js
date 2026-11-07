@@ -203,7 +203,7 @@ function construirConsultasBusqueda(messages) {
 }
 
 // Busca una consulta en Pinecone y devuelve los hits ({source, text, score}).
-async function buscarEnPinecone(consulta) {
+async function buscarEnPinecone(consulta, topK = TOP_K) {
   const pineconeRes = await fetch(
     "https://normativa-nuclear-ku9bass.svc.aped-4627-b74a.pinecone.io/records/namespaces/normativa-nuclear/search",
     {
@@ -214,7 +214,7 @@ async function buscarEnPinecone(consulta) {
         "X-Pinecone-API-Version": "2025-10",
       },
       body: JSON.stringify({
-        query: { inputs: { text: consulta }, top_k: TOP_K },
+        query: { inputs: { text: consulta }, top_k: topK },
         // El índice solo guarda "text" y "source" como metadata — no hay número
         // de página. Si en algún momento se agrega esa metadata al pipeline de
         // indexación, sumar el campo acá (ej. "page" o "pagina") vuelve a habilitar
@@ -236,7 +236,28 @@ async function buscarEnPinecone(consulta) {
   }));
 }
 
+// Los fragmentos indexados traen como "source" el nombre del archivo (ej. "3-8-1_r1.pdf",
+// "ar_10-16-1_r04.pdf"). Se convierte a la forma en que se cita la norma ("Norma AR 3.8.1 rev 1")
+// antes de pasarlo al modelo, para que no cite nombres de archivo. Si ya viene con formato
+// legible (Ley, Guía, Tratado, etc.) se deja igual.
+function etiquetaFuente(source) {
+  const s = String(source || "doc").trim();
+  // Nombres de archivo: "3-8-1_r1.pdf", "ar_10-16-1_r04.pdf", "10-12-1r3" (con o sin "_" antes de la r).
+  const m = s.match(/^(?:ar[_-])?(\d{1,2})-(\d{1,2})-(\d{1,2})[_-]?r(\d+)(?:_\d+)?(?:\.pdf)?$/i);
+  if (m) return `Norma AR ${m[1]}.${m[2]}.${m[3]} rev ${parseInt(m[4], 10)}`;
+  // Las guías se citan siempre como "Guía AR N" (en el índice algunas vienen como "GUÍA AR N").
+  return s.replace(/\.pdf$/i, "").replace(/^gu[íi]a\b/i, "Guía");
+}
+
+// Cantidad mínima de guías que se intenta incluir entre los fragmentos (si hay guías pertinentes).
+const MIN_GUIAS = 2;
+const SOBREPEDIDO = 2;
+const esGuia = (h) => /^gu[íi]a\b/i.test(etiquetaFuente(h.source));
+
 // Une los resultados de varias consultas: sin repetidos, ordenados por puntaje, hasta TOP_K.
+// Se buscan más candidatos de los que se usan (ver SOBREPEDIDO) para que las guías no queden
+// afuera cuando las normas ocupan todos los lugares: si entre los candidatos hay guías con un
+// puntaje cercano al mejor, reemplazan a los fragmentos de norma de menor puntaje.
 function unirResultados(listas) {
   const vistos = new Set();
   const todos = [];
@@ -247,7 +268,19 @@ function unirResultados(listas) {
     todos.push(hit);
   }
   todos.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
-  return todos.slice(0, TOP_K);
+  const elegidos = todos.slice(0, TOP_K);
+  const mejor = todos.length ? todos[0].score : null;
+  const cercano = (h) => mejor === null || h.score === null || h.score >= mejor * 0.8;
+  let guias = elegidos.filter(esGuia).length;
+  const candidatas = todos.slice(TOP_K).filter((h) => esGuia(h) && cercano(h));
+  while (guias < MIN_GUIAS && candidatas.length > 0) {
+    let k = elegidos.length - 1;
+    while (k >= 0 && esGuia(elegidos[k])) k--;
+    if (k < 0) break;
+    elegidos.splice(k, 1, candidatas.shift());
+    guias++;
+  }
+  return elegidos.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
 }
 
 export default async function handler(req, res) {
@@ -261,19 +294,6 @@ export default async function handler(req, res) {
     return res.status(429).json({
       error: { message: "Demasiadas solicitudes. Esperá un momento antes de volver a intentar." },
     });
-  }
-
-  // Los fragmentos indexados traen como "source" el nombre del archivo (ej. "3-8-1_r1.pdf",
-  // "ar_10-16-1_r04.pdf"). Se convierte a la forma en que se cita la norma ("Norma AR 3.8.1 rev 1")
-  // antes de pasarlo al modelo, para que no cite nombres de archivo. Si ya viene con formato
-  // legible (Ley, Guía, Tratado, etc.) se deja igual.
-  function etiquetaFuente(source) {
-    const s = String(source || "doc").trim();
-    // Nombres de archivo: "3-8-1_r1.pdf", "ar_10-16-1_r04.pdf", "10-12-1r3" (con o sin "_" antes de la r).
-    const m = s.match(/^(?:ar[_-])?(\d{1,2})-(\d{1,2})-(\d{1,2})[_-]?r(\d+)(?:_\d+)?(?:\.pdf)?$/i);
-    if (m) return `Norma AR ${m[1]}.${m[2]}.${m[3]} rev ${parseInt(m[4], 10)}`;
-    // Las guías se citan siempre como "Guía AR N" (en el índice algunas vienen como "GUÍA AR N").
-    return s.replace(/\.pdf$/i, "").replace(/^gu[íi]a\b/i, "Guía");
   }
 
   // ── Validación de entrada ───────────────────────────────────────────
@@ -291,7 +311,7 @@ export default async function handler(req, res) {
     let fragmentos = [];
     let busquedaDebil = false;
     try {
-      const listas = await Promise.all(consultasBusqueda.map((c) => buscarEnPinecone(c)));
+      const listas = await Promise.all(consultasBusqueda.map((c) => buscarEnPinecone(c, TOP_K * SOBREPEDIDO)));
       const hits = unirResultados(listas);
       fragmentos = hits.map((h) => `[${etiquetaFuente(h.source)}]\n${h.text}`);
       // Aviso de búsqueda débil: solo si se define RAG_SCORE_MIN (el puntaje depende del índice;
@@ -313,12 +333,14 @@ export default async function handler(req, res) {
 
     const INSTRUCCION_AUSENCIA =
       ' Cuando los fragmentos no cubran la consulta, no afirmes que la normativa no lo establece ni que "no se detalla": decí que no lo encontraste entre los textos recuperados para esta consulta, sugerí reformular con el nombre de la norma o el término exacto (por ejemplo "Norma AR 4.9.2") y recordá verificar en el texto oficial de la ARN.';
+    const INSTRUCCION_GUIAS =
+      ' Si entre los fragmentos hay guías ("Guía AR N") que traten el tema, mencionalas en la respuesta como orientativas y citá cada una en su propio corchete al final, con el nombre exacto del fragmento, por ejemplo [Guía AR 3].';
     const AVISO_BUSQUEDA_DEBIL =
       ' ATENCIÓN: la búsqueda devolvió fragmentos de baja relevancia para esta consulta. Respondé solo lo que figure explícitamente en ellos e indicá que la cobertura puede ser incompleta.';
 
     const armarSistema = (frags) =>
       frags.length > 0
-        ? `${system}\n\n## Fragmentos relevantes de la documentación oficial:\n\n${frags.join("\n\n---\n\n")}\n\n${INSTRUCCION_FRAGMENTOS}${INSTRUCCION_AUSENCIA}${busquedaDebil ? AVISO_BUSQUEDA_DEBIL : ""}`
+        ? `${system}\n\n## Fragmentos relevantes de la documentación oficial:\n\n${frags.join("\n\n---\n\n")}\n\n${INSTRUCCION_FRAGMENTOS}${INSTRUCCION_AUSENCIA}${frags.some((f) => /^\[Gu[íi]a\b/i.test(f)) ? INSTRUCCION_GUIAS : ""}${busquedaDebil ? AVISO_BUSQUEDA_DEBIL : ""}`
         : system;
 
     // Historial reducido: se recortan las respuestas anteriores, que son lo que más pesa.
