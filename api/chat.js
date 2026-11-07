@@ -176,22 +176,75 @@ const GLOSARIO_BUSQUEDA = [
   { patron: /protecci[oó]n f[ií]sica|seguridad f[ií]sica/i, agregar: "protección física de materiales e instalaciones nucleares, Norma AR 10.13.1" },
 ];
 
-function construirConsultaBusqueda(messages) {
+// Devuelve la(s) consulta(s) de búsqueda. La pregunta actual SIEMPRE se busca sola; si parece un
+// seguimiento ("¿Y para el público?"), se agrega una segunda consulta combinada con la pregunta
+// anterior y los resultados se unen. Así una pregunta nueva nunca queda desviada por la anterior.
+function construirConsultasBusqueda(messages) {
   const preguntas = messages.filter((m) => m.role === "user").map((m) => m.content);
   const ultima = (preguntas[preguntas.length - 1] || "").trim();
   const previa = (preguntas[preguntas.length - 2] || "").trim();
   const palabras = ultima.split(/\s+/).filter(Boolean).length;
 
-  let consulta = ultima;
+  const conGlosario = (consulta) => {
+    const extras = GLOSARIO_BUSQUEDA.filter((g) => (palabras <= 10 || g.siempre) && g.patron.test(consulta)).map((g) =>
+      g.salvo && g.salvo.test(consulta) ? g.agregarSalvo : g.agregar
+    );
+    return (extras.length > 0 ? `${consulta} ${extras.slice(0, 2).join(" ")}` : consulta).slice(0, 600);
+  };
+
+  const consultas = [conGlosario(ultima)];
   const esSeguimiento =
     previa && (palabras <= 6 || /^[¿\s]*(y|e|o|entonces|tambi[eé]n|eso|esto|ese|esa)\b/i.test(ultima));
-  if (esSeguimiento) consulta = `${previa} ${ultima}`;
+  if (esSeguimiento) consultas.push(conGlosario(`${previa} ${ultima}`));
+  return consultas;
+}
 
-  const extras = GLOSARIO_BUSQUEDA.filter((g) => (palabras <= 10 || g.siempre) && g.patron.test(consulta)).map((g) =>
-    g.salvo && g.salvo.test(consulta) ? g.agregarSalvo : g.agregar
+// Busca una consulta en Pinecone y devuelve los hits ({source, text, score}).
+async function buscarEnPinecone(consulta) {
+  const pineconeRes = await fetch(
+    "https://normativa-nuclear-ku9bass.svc.aped-4627-b74a.pinecone.io/records/namespaces/normativa-nuclear/search",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Api-Key": process.env.PINECONE_API_KEY,
+        "X-Pinecone-API-Version": "2025-10",
+      },
+      body: JSON.stringify({
+        query: { inputs: { text: consulta }, top_k: TOP_K },
+        // El índice solo guarda "text" y "source" como metadata — no hay número
+        // de página. Si en algún momento se agrega esa metadata al pipeline de
+        // indexación, sumar el campo acá (ej. "page" o "pagina") vuelve a habilitar
+        // las citas con página en el prompt de más abajo.
+        fields: ["text", "source"],
+      }),
+    }
   );
-  if (extras.length > 0) consulta = `${consulta} ${extras.slice(0, 2).join(" ")}`;
-  return consulta.slice(0, 600);
+  if (!pineconeRes.ok) {
+    const errText = await pineconeRes.text().catch(() => "");
+    console.error("Pinecone respondió con error:", pineconeRes.status, errText);
+    return [];
+  }
+  const data = await pineconeRes.json();
+  return (data.result?.hits || []).map((r) => ({
+    source: r.fields?.source,
+    text: r.fields?.text || "",
+    score: typeof r._score === "number" ? r._score : null,
+  }));
+}
+
+// Une los resultados de varias consultas: sin repetidos, ordenados por puntaje, hasta TOP_K.
+function unirResultados(listas) {
+  const vistos = new Set();
+  const todos = [];
+  for (const hit of listas.flat()) {
+    const clave = `${hit.source}|${hit.text.slice(0, 80)}`;
+    if (vistos.has(clave)) continue;
+    vistos.add(clave);
+    todos.push(hit);
+  }
+  todos.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  return todos.slice(0, TOP_K);
 }
 
 export default async function handler(req, res) {
@@ -227,41 +280,21 @@ export default async function handler(req, res) {
   const { messages, system } = req.body;
 
   try {
-    const consultaBusqueda = construirConsultaBusqueda(messages);
+    const consultasBusqueda = construirConsultasBusqueda(messages);
 
-    // ── 1. Buscar contexto relevante en Pinecone (ver construirConsultaBusqueda) ──────────────────────
+    // ── 1. Buscar contexto relevante en Pinecone (ver construirConsultasBusqueda) ─────────────────────
     let fragmentos = [];
+    let busquedaDebil = false;
     try {
-      const pineconeRes = await fetch(
-        "https://normativa-nuclear-ku9bass.svc.aped-4627-b74a.pinecone.io/records/namespaces/normativa-nuclear/search",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Api-Key": process.env.PINECONE_API_KEY,
-            "X-Pinecone-API-Version": "2025-10",
-          },
-          body: JSON.stringify({
-            query: { inputs: { text: consultaBusqueda }, top_k: TOP_K },
-            // El índice solo guarda "text" y "source" como metadata — no hay número
-            // de página. Si en algún momento se agrega esa metadata al pipeline de
-            // indexación, sumar el campo acá (ej. "page" o "pagina") vuelve a habilitar
-            // las citas con página en el prompt de más abajo.
-            fields: ["text", "source"],
-          }),
-        }
-      );
-
-      if (pineconeRes.ok) {
-        const pineconeData = await pineconeRes.json();
-        const resultados = pineconeData.result?.hits || [];
-        fragmentos = resultados.map(
-          (r) => `[${etiquetaFuente(r.fields?.source)}]\n${r.fields?.text || ""}`
-        );
-      } else {
-        const errText = await pineconeRes.text().catch(() => "");
-        console.error("Pinecone respondió con error:", pineconeRes.status, errText);
-      }
+      const listas = await Promise.all(consultasBusqueda.map((c) => buscarEnPinecone(c)));
+      const hits = unirResultados(listas);
+      fragmentos = hits.map((h) => `[${etiquetaFuente(h.source)}]\n${h.text}`);
+      // Aviso de búsqueda débil: solo si se define RAG_SCORE_MIN (el puntaje depende del índice;
+      // los puntajes de cada consulta quedan en el log de Vercel para calibrar el valor).
+      const mejor = hits.length ? hits[0].score : null;
+      console.log("RAG", JSON.stringify({ consultas: consultasBusqueda.length, mejorPuntaje: mejor, fuentes: hits.map((h) => etiquetaFuente(h.source)) }));
+      const minimo = Number(process.env.RAG_SCORE_MIN);
+      if (minimo > 0 && mejor !== null && mejor < minimo) busquedaDebil = true;
     } catch (pineconeErr) {
       // Si Pinecone falla, seguimos sin contexto documental en vez de
       // romper toda la respuesta.
@@ -273,9 +306,14 @@ export default async function handler(req, res) {
     const INSTRUCCION_FRAGMENTOS =
       'Usá estos fragmentos como base de la respuesta. Los que empiezan con "GUÍA" son guías orientativas de la ARN, no la norma: aclaralo, explicá primero lo que establece la norma y después lo que recomienda la guía, y citá cada una en su propio corchete final. No indiques número de página. Reglas de precisión: (1) citá códigos y títulos de normas tal cual figuran en los fragmentos, sin inventar ni reformular títulos; (2) si la consulta pide valores o límites y no figuran en los fragmentos, decilo y no los completes con cifras "internacionales" ni de memoria; (3) no atribuyas a una norma o guía lo que dice otra, ni apliques valores de una guía a un caso distinto del que la guía describe; (4) si la consulta es muy general o ambigua, respondé solo lo que sí figura en los fragmentos e indicá qué precisión necesitás; (5) si los fragmentos no responden la pregunta (o solo en parte), decí explícitamente que no figura en la documentación consultada: no completes con datos de memoria sobre instalaciones, ubicaciones, potencias, cargos, comités, decretos, fechas ni límites de dosis; (6) cada afirmación debe poder rastrearse a un fragmento: ante la duda, omitila; (7) no presentes como "límite de dosis" un valor que en el fragmento aparece como criterio de optimización, restricción de dosis, nivel de referencia, nivel de exención o dosis colectiva por unidad de energía: los límites de dosis son solo los que el texto llama "límites de dosis" (en la AR 10.1.1, sección D.1.7.1 para trabajadores); si un fragmento aparece cortado y no se ve la condición a la que pertenece un valor, no lo uses como regla general; (8) en la AR 10.1.1, una frase del tipo "ningún trabajador puede recibir una dosis efectiva superior a X mSv en un año y ningún miembro del público superior a Y mSv … no es necesario demostrar que los sistemas están optimizados" es un criterio para NO exigir la demostración de optimización: no es un límite de dosis y no debe presentarse como tal. Los límites de dosis son los que el texto llama "límites de dosis" (para trabajadores, sección D.1.7.1); si esa sección no está en los fragmentos recibidos, decí que el valor debe consultarse en la AR 10.1.1 en lugar de dar un número.';
 
+    const INSTRUCCION_AUSENCIA =
+      ' Cuando los fragmentos no cubran la consulta, no afirmes que la normativa no lo establece ni que "no se detalla": decí que no lo encontraste entre los textos recuperados para esta consulta, sugerí reformular con el nombre de la norma o el término exacto (por ejemplo "Norma AR 4.9.2") y recordá verificar en el texto oficial de la ARN.';
+    const AVISO_BUSQUEDA_DEBIL =
+      ' ATENCIÓN: la búsqueda devolvió fragmentos de baja relevancia para esta consulta. Respondé solo lo que figure explícitamente en ellos e indicá que la cobertura puede ser incompleta.';
+
     const armarSistema = (frags) =>
       frags.length > 0
-        ? `${system}\n\n## Fragmentos relevantes de la documentación oficial:\n\n${frags.join("\n\n---\n\n")}\n\n${INSTRUCCION_FRAGMENTOS}`
+        ? `${system}\n\n## Fragmentos relevantes de la documentación oficial:\n\n${frags.join("\n\n---\n\n")}\n\n${INSTRUCCION_FRAGMENTOS}${INSTRUCCION_AUSENCIA}${busquedaDebil ? AVISO_BUSQUEDA_DEBIL : ""}`
         : system;
 
     // Historial reducido: se recortan las respuestas anteriores, que son lo que más pesa.
@@ -325,7 +363,7 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: { message: "Ocurrió un error interno. Intentá de nuevo." } });
     }
 
-    console.log(`Búsqueda: "${consultaBusqueda.slice(0, 200)}" (top_k ${TOP_K}, ${fragmentos.length} fragmentos)`);
+    console.log(`Búsqueda: "${consultasBusqueda[consultasBusqueda.length - 1].slice(0, 200)}" (top_k ${TOP_K}, ${fragmentos.length} fragmentos)`);
 
     // ── 2. Llamar al modelo con streaming, con proveedor de respaldo ───────────────
     // Se prueba el proveedor principal; si responde 429 (límite) o falla, se pasa al siguiente.
