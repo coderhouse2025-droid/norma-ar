@@ -160,6 +160,9 @@ async function fetchConReintento(url, init, { maxIntentos = 3, maxEsperaMs = 400
 // 1) las preguntas de seguimiento se buscan junto con la pregunta anterior;
 // 2) las preguntas cortas se amplían con términos de la normativa (glosario editable).
 const GLOSARIO_BUSQUEDA = [
+  // Programas de examen: "características de los programas de examen" (6 palabras) se trataba como
+  // seguimiento de la pregunta anterior y la respuesta salía de la AR 4.8.1 en lugar de la AR 3.8.1 / Guía AR 10.
+  { siempre: true, patron: /programas?\s+de\s+examen/i, agregar: "programa de examen, características de los programas de examen, Norma AR 3.8.1 Guía AR 10" },
   // Informe de seguridad: pregunta de 10 palabras que antes se trataba como seguimiento de la anterior
   // y la búsqueda traía licenciamiento/permisos en lugar del contenido del informe.
   { siempre: true, patron: /informe\s+(preliminar\s+|final\s+)?de\s+seguridad/i, agregar: "contenido del Informe Preliminar de Seguridad e Informe Final de Seguridad de la instalación, Norma AR 4.9.2 Norma AR 4.9.1 Norma AR 3.9.1" },
@@ -194,7 +197,7 @@ function construirConsultasBusqueda(messages) {
 
   const consultas = [conGlosario(ultima)];
   const esSeguimiento =
-    previa && (palabras <= 6 || /^[¿\s]*(y|e|o|entonces|tambi[eé]n|eso|esto|ese|esa)\b/i.test(ultima));
+    previa && (palabras <= 4 || /^[¿\s]*(y|e|o|entonces|tambi[eé]n|eso|esto|ese|esa)\b/i.test(ultima));
   if (esSeguimiento) consultas.push(conGlosario(`${previa} ${ultima}`));
   return consultas;
 }
