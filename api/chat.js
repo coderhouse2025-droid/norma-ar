@@ -160,6 +160,9 @@ async function fetchConReintento(url, init, { maxIntentos = 3, maxEsperaMs = 400
 // 1) las preguntas de seguimiento se buscan junto con la pregunta anterior;
 // 2) las preguntas cortas se amplían con términos de la normativa (glosario editable).
 const GLOSARIO_BUSQUEDA = [
+  // Informe de seguridad: pregunta de 10 palabras que antes se trataba como seguimiento de la anterior
+  // y la búsqueda traía licenciamiento/permisos en lugar del contenido del informe.
+  { siempre: true, patron: /informe\s+(preliminar\s+|final\s+)?de\s+seguridad/i, agregar: "contenido del Informe Preliminar de Seguridad e Informe Final de Seguridad de la instalación, Norma AR 4.9.2 Norma AR 4.9.1 Norma AR 3.9.1" },
   // Límites de dosis: se aplica SIEMPRE (aunque la pregunta sea larga). Sin esto, la búsqueda traía el
   // criterio de optimización de la AR 10.1.1 ("5 mSv / 0,1 mSv") en lugar de la sección de límites.
   { siempre: true, patron: /l[ií]mites?\s+(de\s+)?dosis|dosis\s+(m[aá]xim|permitid|l[ií]mite)|l[ií]mites?\s+(anual|para\s+trabajadores|ocupacional)/i, agregar: "Norma AR 10.1.1 D.1.7.1 Exposición ocupacional. Límites de dosis para trabajadores: dosis efectiva de 20 mSv por año como promedio en 5 años consecutivos, dosis equivalente en cristalino, piel o extremidades; límites de dosis para miembros del público" },
@@ -181,7 +184,7 @@ function construirConsultaBusqueda(messages) {
 
   let consulta = ultima;
   const esSeguimiento =
-    previa && (palabras <= 10 || /^[¿\s]*(y|e|o|entonces|tambi[eé]n|eso|esto|ese|esa)\b/i.test(ultima));
+    previa && (palabras <= 6 || /^[¿\s]*(y|e|o|entonces|tambi[eé]n|eso|esto|ese|esa)\b/i.test(ultima));
   if (esSeguimiento) consulta = `${previa} ${ultima}`;
 
   const extras = GLOSARIO_BUSQUEDA.filter((g) => (palabras <= 10 || g.siempre) && g.patron.test(consulta)).map((g) =>
