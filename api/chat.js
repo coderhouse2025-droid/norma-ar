@@ -270,7 +270,7 @@ function unirResultados(listas) {
   todos.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
   const elegidos = todos.slice(0, TOP_K);
   const mejor = todos.length ? todos[0].score : null;
-  const cercano = (h) => mejor === null || h.score === null || h.score >= mejor * 0.8;
+  const cercano = (h) => mejor === null || h.score === null || h.score >= mejor * 0.7;
   let guias = elegidos.filter(esGuia).length;
   const candidatas = todos.slice(TOP_K).filter((h) => esGuia(h) && cercano(h));
   while (guias < MIN_GUIAS && candidatas.length > 0) {
@@ -280,7 +280,9 @@ function unirResultados(listas) {
     elegidos.splice(k, 1, candidatas.shift());
     guias++;
   }
-  return elegidos.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  const final = elegidos.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  final.candidatos = todos.map((h) => `${etiquetaFuente(h.source)} (${h.score === null ? "s/p" : h.score.toFixed(2)})`);
+  return final;
 }
 
 export default async function handler(req, res) {
@@ -311,13 +313,20 @@ export default async function handler(req, res) {
     let fragmentos = [];
     let busquedaDebil = false;
     try {
-      const listas = await Promise.all(consultasBusqueda.map((c) => buscarEnPinecone(c, TOP_K * SOBREPEDIDO)));
+      // Búsqueda general + búsqueda dirigida a guías (la consulta con "Guía AR" al final, de la que solo
+      // se conservan las guías): las normas suelen ocupar todos los primeros lugares y las guías,
+      // que son más cortas y orientativas, quedaban sin aparecer en las referencias.
+      const generales = consultasBusqueda.map((c) => buscarEnPinecone(c, TOP_K * SOBREPEDIDO));
+      const dirigidas = consultasBusqueda.map((c) =>
+        buscarEnPinecone(`${c} Guía AR guía regulatoria`.slice(0, 600), TOP_K * SOBREPEDIDO).then((hs) => hs.filter(esGuia))
+      );
+      const listas = await Promise.all([...generales, ...dirigidas]);
       const hits = unirResultados(listas);
       fragmentos = hits.map((h) => `[${etiquetaFuente(h.source)}]\n${h.text}`);
       // Aviso de búsqueda débil: solo si se define RAG_SCORE_MIN (el puntaje depende del índice;
       // los puntajes de cada consulta quedan en el log de Vercel para calibrar el valor).
       const mejor = hits.length ? hits[0].score : null;
-      console.log("RAG", JSON.stringify({ consultas: consultasBusqueda.length, mejorPuntaje: mejor, fuentes: hits.map((h) => etiquetaFuente(h.source)) }));
+      console.log("RAG", JSON.stringify({ consultas: consultasBusqueda.length, mejorPuntaje: mejor, fuentes: hits.map((h) => etiquetaFuente(h.source)), candidatos: hits.candidatos }));
       const minimo = Number(process.env.RAG_SCORE_MIN);
       if (minimo > 0 && mejor !== null && mejor < minimo) busquedaDebil = true;
     } catch (pineconeErr) {
