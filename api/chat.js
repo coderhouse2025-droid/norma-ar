@@ -160,6 +160,9 @@ async function fetchConReintento(url, init, { maxIntentos = 3, maxEsperaMs = 400
 // 1) las preguntas de seguimiento se buscan junto con la pregunta anterior;
 // 2) las preguntas cortas se amplían con términos de la normativa (glosario editable).
 const GLOSARIO_BUSQUEDA = [
+  // Caracterización: "¿Qué es una caracterización?" se mezclaba con la pregunta anterior y la respuesta decía
+  // que no había definición, pero está en la Guía AR 13 (definición 5, sobre residuos radiactivos).
+  { patron: /caracterizaci[oó]n(?!\s+(?:del?|de\s+la)\s+(?:sitio|emplazamiento|zona|instalaci))/i, agregar: "Caracterización: determinación de las propiedades físicas, químicas y radiológicas de los residuos radiactivos para establecer el tratamiento y acondicionamiento, Guía AR 13" },
   // Programas de examen: "características de los programas de examen" (6 palabras) se trataba como
   // seguimiento de la pregunta anterior y la respuesta salía de la AR 4.8.1 en lugar de la AR 3.8.1 / Guía AR 10.
   { siempre: true, patron: /programas?\s+de\s+examen/i, agregar: "programa de examen, características de los programas de examen, Norma AR 3.8.1 Guía AR 10" },
@@ -197,7 +200,7 @@ function construirConsultasBusqueda(messages) {
 
   const consultas = [conGlosario(ultima)];
   const esSeguimiento =
-    previa && (palabras <= 4 || /^[¿\s]*(y|e|o|entonces|tambi[eé]n|eso|esto|ese|esa)\b/i.test(ultima));
+    previa && (palabras <= 3 || /\b(eso|esto|ese|esa|esos|esas|mismo|misma|anterior|tambi[eé]n)\b/i.test(ultima) || /^[¿\s]*(y|e|o|entonces|tambi[eé]n|eso|esto|ese|esa)\b/i.test(ultima));
   if (esSeguimiento) consultas.push(conGlosario(`${previa} ${ultima}`));
   return consultas;
 }
