@@ -204,6 +204,17 @@ export default async function handler(req, res) {
     });
   }
 
+  // Los fragmentos indexados traen como "source" el nombre del archivo (ej. "3-8-1_r1.pdf",
+  // "ar_10-16-1_r04.pdf"). Se convierte a la forma en que se cita la norma ("Norma AR 3.8.1 rev 1")
+  // antes de pasarlo al modelo, para que no cite nombres de archivo. Si ya viene con formato
+  // legible (Ley, Guía, Tratado, etc.) se deja igual.
+  function etiquetaFuente(source) {
+    const s = String(source || "doc").trim();
+    const m = s.match(/^(?:ar[_-])?(\d{1,2})-(\d{1,2})-(\d{1,2})_r(\d+)(?:_\d+)?\.pdf$/i);
+    if (m) return `Norma AR ${m[1]}.${m[2]}.${m[3]} rev ${parseInt(m[4], 10)}`;
+    return s.replace(/\.pdf$/i, "");
+  }
+
   // ── Validación de entrada ───────────────────────────────────────────
   const validationError = validateBody(req.body);
   if (validationError) {
@@ -242,7 +253,7 @@ export default async function handler(req, res) {
         const pineconeData = await pineconeRes.json();
         const resultados = pineconeData.result?.hits || [];
         fragmentos = resultados.map(
-          (r) => `[${r.fields?.source || "doc"}]\n${r.fields?.text || ""}`
+          (r) => `[${etiquetaFuente(r.fields?.source)}]\n${r.fields?.text || ""}`
         );
       } else {
         const errText = await pineconeRes.text().catch(() => "");
