@@ -119,7 +119,8 @@ Las respuestas se generan combinando un modelo de lenguaje (GPT-OSS 120B, servid
 
 **Interfaz.** La pantalla de inicio ofrece un buscador de temas, siete temas principales, accesos rápidos (Ley 24.804, límites de dosis, licencias y salvaguardias), el cuadro de fuentes oficiales y las acciones de exportar y limpiar la conversación. El panel "Empezá por una consulta" está unido a la caja de escritura. Además de las consultas escritas, se pueden **dictar por voz** y, si el usuario activa el parlante, **escuchar las respuestas** (ver [Voz](#voz-dictado-y-lectura-de-respuestas)).
 
-<img width="1024" height="1536" alt="ChatGPT Image 22 ago 2026, 01_28_32 p m" src="https://github.com/user-attachments/assets/0355da97-d466-44f8-a539-afe032ef6c6d" />
+<img width="1536" height="1024" alt="image" src="https://github.com/user-attachments/assets/c06b7a3f-e886-4d64-9476-2314d0c8acd8" />
+
 
 ### Normas y guías: una distinción que el asistente respeta
 
