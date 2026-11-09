@@ -261,7 +261,7 @@ const esGuia = (h) => /^gu[íi]a\b/i.test(etiquetaFuente(h.source));
 // Se buscan más candidatos de los que se usan (ver SOBREPEDIDO) para que las guías no queden
 // afuera cuando las normas ocupan todos los lugares: si entre los candidatos hay guías con un
 // puntaje cercano al mejor, reemplazan a los fragmentos de norma de menor puntaje.
-function unirResultados(listas) {
+function unirResultados(listas, forzarGuias = true) {
   const vistos = new Set();
   const todos = [];
   for (const hit of listas.flat()) {
@@ -276,7 +276,7 @@ function unirResultados(listas) {
   const cercano = (h) => mejor === null || h.score === null || h.score >= mejor * 0.7;
   let guias = elegidos.filter(esGuia).length;
   const candidatas = todos.slice(TOP_K).filter((h) => esGuia(h) && cercano(h));
-  while (guias < MIN_GUIAS && candidatas.length > 0) {
+  while (forzarGuias && guias < MIN_GUIAS && candidatas.length > 0) {
     let k = elegidos.length - 1;
     while (k >= 0 && esGuia(elegidos[k])) k--;
     if (k < 0) break;
@@ -324,14 +324,17 @@ export default async function handler(req, res) {
         buscarEnPinecone(`${c} Guía AR guía regulatoria`.slice(0, 600), TOP_K * SOBREPEDIDO).then((hs) => hs.filter(esGuia))
       );
       const listas = await Promise.all([...generales, ...dirigidas]);
-      const hits = unirResultados(listas);
-      fragmentos = hits.map((h) => `[${etiquetaFuente(h.source)}]\n${h.text}`);
       // Aviso de búsqueda débil: solo si se define RAG_SCORE_MIN (el puntaje depende del índice;
-      // los puntajes de cada consulta quedan en el log de Vercel para calibrar el valor).
-      const mejor = hits.length ? hits[0].score : null;
-      console.log("RAG", JSON.stringify({ consultas: consultasBusqueda.length, mejorPuntaje: mejor, fuentes: hits.map((h) => etiquetaFuente(h.source)), candidatos: hits.candidatos }));
+      // los puntajes de cada consulta quedan en el log de Vercel para calibrar el valor). Con búsqueda
+      // débil tampoco se fuerzan guías, para no mostrar referencias que no vienen al caso.
+      const puntajes = listas.flat().map((h) => h.score).filter((x) => typeof x === "number");
+      const mejorGeneral = puntajes.length ? Math.max(...puntajes) : null;
       const minimo = Number(process.env.RAG_SCORE_MIN);
-      if (minimo > 0 && mejor !== null && mejor < minimo) busquedaDebil = true;
+      if (minimo > 0 && mejorGeneral !== null && mejorGeneral < minimo) busquedaDebil = true;
+      const hits = unirResultados(listas, !busquedaDebil);
+      fragmentos = hits.map((h) => `[${etiquetaFuente(h.source)}]\n${h.text}`);
+      const mejor = hits.length ? hits[0].score : null;
+      console.log("RAG", JSON.stringify({ consultas: consultasBusqueda.length, mejorPuntaje: mejor, debil: busquedaDebil, fuentes: hits.map((h) => etiquetaFuente(h.source)), candidatos: hits.candidatos }));
     } catch (pineconeErr) {
       // Si Pinecone falla, seguimos sin contexto documental en vez de
       // romper toda la respuesta.
@@ -344,7 +347,7 @@ export default async function handler(req, res) {
       'Usá estos fragmentos como base de la respuesta. Los que empiezan con "Guía" son guías orientativas de la ARN, no la norma: aclaralo, explicá primero lo que establece la norma y después lo que recomienda la guía, y citá cada una en su propio corchete final. No indiques número de página. Reglas de precisión: (1) citá códigos y títulos de normas tal cual figuran en los fragmentos, sin inventar ni reformular títulos; (2) si la consulta pide valores o límites y no figuran en los fragmentos, decilo y no los completes con cifras "internacionales" ni de memoria; (3) no atribuyas a una norma o guía lo que dice otra, ni apliques valores de una guía a un caso distinto del que la guía describe; (4) si la consulta es muy general o ambigua, respondé solo lo que sí figura en los fragmentos e indicá qué precisión necesitás; (5) si los fragmentos no responden la pregunta (o solo en parte), decí explícitamente que no figura en la documentación consultada: no completes con datos de memoria sobre instalaciones, ubicaciones, potencias, cargos, comités, decretos, fechas ni límites de dosis; (6) cada afirmación debe poder rastrearse a un fragmento: ante la duda, omitila; (7) no presentes como "límite de dosis" un valor que en el fragmento aparece como criterio de optimización, restricción de dosis, nivel de referencia, nivel de exención o dosis colectiva por unidad de energía: los límites de dosis son solo los que el texto llama "límites de dosis" (en la AR 10.1.1, sección D.1.7.1 para trabajadores); si un fragmento aparece cortado y no se ve la condición a la que pertenece un valor, no lo uses como regla general; (8) en la AR 10.1.1, una frase del tipo "ningún trabajador puede recibir una dosis efectiva superior a X mSv en un año y ningún miembro del público superior a Y mSv … no es necesario demostrar que los sistemas están optimizados" es un criterio para NO exigir la demostración de optimización: no es un límite de dosis y no debe presentarse como tal. Los límites de dosis son los que el texto llama "límites de dosis" (para trabajadores, sección D.1.7.1); si esa sección no está en los fragmentos recibidos, decí que el valor debe consultarse en la AR 10.1.1 en lugar de dar un número.';
 
     const INSTRUCCION_AUSENCIA =
-      ' Cuando los fragmentos no cubran la consulta, no afirmes que la normativa no lo establece ni que "no se detalla": decí que no lo encontraste entre los textos recuperados para esta consulta, sugerí reformular con el nombre de la norma o el término exacto (por ejemplo "Norma AR 4.9.2") y recordá verificar en el texto oficial de la ARN.';
+      ' Cuando los fragmentos no cubran la consulta, no afirmes que la normativa no lo establece ni que "no se detalla": decí que no lo encontraste entre los textos recuperados para esta consulta. En ese caso NO cites fuentes entre corchetes (no respaldan nada), NO inventes nombres de normas ni uses marcadores como "Norma AR X.Y.Z", y no sugieras que existe una norma dedicada: aclará brevemente qué sí cubre la documentación consultada (normas y guías de la ARN, leyes y tratados), recomendá consultar directamente a la ARN y verificar en el texto oficial.';
     const INSTRUCCION_GUIAS =
       ' Si entre los fragmentos hay guías ("Guía AR N") que traten el tema, mencionalas en la respuesta como orientativas y citá cada una en su propio corchete al final, con el nombre exacto del fragmento, por ejemplo [Guía AR 3].';
     const AVISO_BUSQUEDA_DEBIL =
