@@ -328,10 +328,13 @@ function capForHistory(text) {
 // Respuestas que abren diciendo que no se encontró información: las referencias del pie no
 // respaldan nada (son solo los textos que se consultaron), así que no se muestran.
 const OPENS_WITH_NOT_FOUND = /^[\s#*>_-]*(?:en la documentaci[oó]n consultada,?\s+)?(?:no\s+(?:se\s+)?(?:encontr|encuentr|incluy|detall|mencion|figur|aparec|hall)\w*|no\s+(?:hay|existe|cuento)\b)/i;
+// También cuando la respuesta empieza describiendo lo que sí hay y enseguida aclara que no incluye lo consultado
+// ("…pero no incluye disposiciones específicas…", "…no se encuentran los requisitos…").
+const SAYS_NOT_FOUND_EARLY = /\b(?:pero\s+)?no\s+(?:se\s+)?(?:incluy|encuentr|encontr|hall|figur)\w*\s+(?:\w+\s+){0,3}?(?:disposiciones|requisitos|informaci[oó]n|definici[oó]n|normativa|criterios)\b/i;
 
 function renderAssistant(raw) {
   const limpio = cleanAssistantText(raw);
-  const citations = OPENS_WITH_NOT_FOUND.test(limpio.slice(0, 200)) ? [] : extractCitations(raw);
+  const citations = OPENS_WITH_NOT_FOUND.test(limpio.slice(0, 200)) || SAYS_NOT_FOUND_EARLY.test(limpio.slice(0, 450)) ? [] : extractCitations(raw);
   const html = md2html(limpio);
   return { html, citations };
 }
