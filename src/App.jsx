@@ -294,10 +294,14 @@ function hideInternalRefs(text) {
     .replace(/\s*\(\s*pp?\.\s*\d+[^)]*\)/gi, "")
     // Identificadores de archivo del índice (4-7-2 r0) → nombre de la norma (AR 4.7.2, rev. 0).
     .replace(/\b(\d{1,2})[‐-–-](\d{1,2})[‐-–-](\d{1,2})\s*_?r(\d+)(?:\.pdf)?\b/gi, "AR $1.$2.$3 (rev. $4)")
-    .replace(/\b(?:del|al)\s+fragmentos?\b/gi, (m) => (m.toLowerCase().startsWith("del") ? "de la" : "a la") + " documentación consultada")
-    .replace(/\b(?:los|las|estos|esos)\s+fragmentos(?:\s+(?:recibidos|consultados|recuperados|proporcionados|disponibles))?/gi, "la documentación consultada")
-    .replace(/\b(?:el|este|ese)\s+fragmento(?:\s+(?:recibido|consultado|recuperado|proporcionado))?/gi, "la documentación consultada")
-    .replace(/\bfragmentos?\b/gi, "documentación consultada")
+    // "fragmento(s)" es un término interno: se reemplaza por "documento(s) consultado(s)", que mantiene
+    // la concordancia con el verbo ("los documentos consultados tratan…") y respeta la mayúscula inicial.
+    .replace(/\b(?:del|al)\s+fragmentos?\b/gi, (m) => (/^[A-ZÁÉÍÓÚ]/.test(m) ? (m.toLowerCase().startsWith("del") ? "Del" : "Al") : (m.toLowerCase().startsWith("del") ? "del" : "al")) + " documento consultado")
+    .replace(/\b(?:los|las|estos|esos)\s+fragmentos(?:\s+(?:recibidos|consultados|recuperados|proporcionados|disponibles))?/gi,
+      (m) => (/^[A-ZÁÉÍÓÚ]/.test(m) ? "Los" : "los") + " documentos consultados")
+    .replace(/\b(?:el|este|ese)\s+fragmento(?:\s+(?:recibido|consultado|recuperado|proporcionado))?/gi,
+      (m) => (/^[A-ZÁÉÍÓÚ]/.test(m) ? "El" : "el") + " documento consultado")
+    .replace(/\bfragmentos?\b/gi, (m) => (/s$/i.test(m) ? "documentos" : "documento"))
     // CNEA: el texto fuente dice que el Decreto-Ley 22.498/56 estableció su régimen legal (la CNEA
     // existe desde 1950); el modelo a veces lo reformula como "fue creada mediante" ese decreto.
     .replace(/\b([Ff])ue creada (?:mediante|por|a través d[eo]l?)\s*(?:el\s+)?decreto[\s\u2010-\u2013-]*ley\s+(22\.498\/56)/gi,
@@ -321,9 +325,14 @@ function capForHistory(text) {
 }
 
 // Combina el parseo de citas con la conversión a HTML, para usar en cada actualización del mensaje.
+// Respuestas que abren diciendo que no se encontró información: las referencias del pie no
+// respaldan nada (son solo los textos que se consultaron), así que no se muestran.
+const OPENS_WITH_NOT_FOUND = /^[\s#*>_-]*(?:en la documentaci[oó]n consultada,?\s+)?(?:no\s+(?:se\s+)?(?:encontr|encuentr|incluy|detall|mencion|figur|aparec|hall)\w*|no\s+(?:hay|existe|cuento)\b)/i;
+
 function renderAssistant(raw) {
-  const citations = extractCitations(raw);
-  const html = md2html(cleanAssistantText(raw));
+  const limpio = cleanAssistantText(raw);
+  const citations = OPENS_WITH_NOT_FOUND.test(limpio.slice(0, 200)) ? [] : extractCitations(raw);
+  const html = md2html(limpio);
   return { html, citations };
 }
 
