@@ -214,7 +214,7 @@ function construirConsultasBusqueda(messages) {
 }
 
 // Busca una consulta en Pinecone y devuelve los hits ({source, text, score}).
-async function buscarEnPinecone(consulta, topK = TOP_K) {
+async function buscarEnPinecone(consulta, topK = TOP_K, filtro = null) {
   const pineconeRes = await fetch(
     "https://normativa-nuclear-ku9bass.svc.aped-4627-b74a.pinecone.io/records/namespaces/normativa-nuclear/search",
     {
@@ -225,7 +225,7 @@ async function buscarEnPinecone(consulta, topK = TOP_K) {
         "X-Pinecone-API-Version": "2025-10",
       },
       body: JSON.stringify({
-        query: { inputs: { text: consulta }, top_k: topK },
+        query: { inputs: { text: consulta }, top_k: topK, ...(filtro ? { filter: filtro } : {}) },
         // El índice solo guarda "text" y "source" como metadata — no hay número
         // de página. Si en algún momento se agrega esa metadata al pipeline de
         // indexación, sumar el campo acá (ej. "page" o "pagina") vuelve a habilitar
@@ -291,6 +291,14 @@ function numerosSinRespaldo(respuesta, textosFuente) {
   return sinRespaldo.slice(0, 5);
 }
 
+// Fuentes dirigidas: para ciertas preguntas se sabe en qué documentos está la respuesta (referencias
+// verificadas a mano) y la búsqueda por similitud no los trae. Se hace una búsqueda adicional limitada a esos
+// archivos (filtro por el campo "source", que guarda el nombre del archivo) y sus resultados entran siempre.
+const FUENTES_DIRIGIDAS = [
+  { patron: /informe\s+(preliminar\s+|final\s+)?de\s+seguridad/i, fuentes: ["4-9-2_r2_0.pdf", "4-9-1_r1.pdf", "3-9-1_r1.pdf"] },
+];
+const MAX_PRIORITARIOS = 3;
+
 // Cantidad mínima de guías que se intenta incluir entre los fragmentos (si hay guías pertinentes).
 const MIN_GUIAS = 2;
 const SOBREPEDIDO = 2;
@@ -300,21 +308,28 @@ const esGuia = (h) => /^gu[íi]a\b/i.test(etiquetaFuente(h.source));
 // Se buscan más candidatos de los que se usan (ver SOBREPEDIDO) para que las guías no queden
 // afuera cuando las normas ocupan todos los lugares: si entre los candidatos hay guías con un
 // puntaje cercano al mejor, reemplazan a los fragmentos de norma de menor puntaje.
-function unirResultados(listas, forzarGuias = true) {
+function unirResultados(listas, forzarGuias = true, prioritarios = []) {
+  const clave = (h) => `${h.source}|${h.text.slice(0, 80)}`;
+  const prio = [];
   const vistos = new Set();
+  for (const h of [...prioritarios].sort((a, b) => (b.score ?? 0) - (a.score ?? 0))) {
+    if (prio.length >= MAX_PRIORITARIOS || vistos.has(clave(h))) continue;
+    vistos.add(clave(h));
+    prio.push(h);
+  }
+  const cupo = Math.max(TOP_K - prio.length, 1);
   const todos = [];
   for (const hit of listas.flat()) {
-    const clave = `${hit.source}|${hit.text.slice(0, 80)}`;
-    if (vistos.has(clave)) continue;
-    vistos.add(clave);
+    if (vistos.has(clave(hit))) continue;
+    vistos.add(clave(hit));
     todos.push(hit);
   }
   todos.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
-  const elegidos = todos.slice(0, TOP_K);
+  const elegidos = todos.slice(0, cupo);
   const mejor = todos.length ? todos[0].score : null;
   const cercano = (h) => mejor === null || h.score === null || h.score >= mejor * 0.7;
   let guias = elegidos.filter(esGuia).length;
-  const candidatas = todos.slice(TOP_K).filter((h) => esGuia(h) && cercano(h));
+  const candidatas = todos.slice(cupo).filter((h) => esGuia(h) && cercano(h));
   while (forzarGuias && guias < MIN_GUIAS && candidatas.length > 0) {
     let k = elegidos.length - 1;
     while (k >= 0 && esGuia(elegidos[k])) k--;
@@ -322,8 +337,9 @@ function unirResultados(listas, forzarGuias = true) {
     elegidos.splice(k, 1, candidatas.shift());
     guias++;
   }
-  const final = elegidos.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
-  final.candidatos = todos.map((h) => `${etiquetaFuente(h.source)} (${h.score === null ? "s/p" : h.score.toFixed(2)})`);
+  const final = [...prio, ...elegidos].sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  final.candidatos = [...prio, ...todos].map((h) => `${etiquetaFuente(h.source)} (${h.score === null ? "s/p" : h.score.toFixed(2)})`);
+  final.prioritarios = prio.length;
   return final;
 }
 
@@ -362,7 +378,12 @@ export default async function handler(req, res) {
       const dirigidas = consultasBusqueda.map((c) =>
         buscarEnPinecone(`${c} Guía AR guía regulatoria`.slice(0, 600), TOP_K * SOBREPEDIDO).then((hs) => hs.filter(esGuia))
       );
-      const listas = await Promise.all([...generales, ...dirigidas]);
+      const ultimaPregunta = [...messages].reverse().find((m) => m.role === "user")?.content || "";
+      const objetivo = [...new Set(FUENTES_DIRIGIDAS.filter((f) => f.patron.test(ultimaPregunta)).flatMap((f) => f.fuentes))];
+      const porFuente = objetivo.length
+        ? buscarEnPinecone(consultasBusqueda[0], MAX_PRIORITARIOS * 2, { source: { $in: objetivo } })
+        : Promise.resolve([]);
+      const [listas, prioritarios] = await Promise.all([Promise.all([...generales, ...dirigidas]), porFuente]);
       // Aviso de búsqueda débil: solo si se define RAG_SCORE_MIN (el puntaje depende del índice;
       // los puntajes de cada consulta quedan en el log de Vercel para calibrar el valor). Con búsqueda
       // débil tampoco se fuerzan guías, para no mostrar referencias que no vienen al caso.
@@ -370,10 +391,10 @@ export default async function handler(req, res) {
       const mejorGeneral = puntajes.length ? Math.max(...puntajes) : null;
       const minimo = Number(process.env.RAG_SCORE_MIN);
       if (minimo > 0 && mejorGeneral !== null && mejorGeneral < minimo) busquedaDebil = true;
-      const hits = unirResultados(listas, !busquedaDebil);
+      const hits = unirResultados(listas, !busquedaDebil, prioritarios);
       fragmentos = hits.map((h) => `[${etiquetaFuente(h.source)}]\n${h.text}`);
       const mejor = hits.length ? hits[0].score : null;
-      console.log("RAG", JSON.stringify({ consultas: consultasBusqueda.length, mejorPuntaje: mejor, debil: busquedaDebil, fuentes: hits.map((h) => etiquetaFuente(h.source)), candidatos: hits.candidatos }));
+      console.log("RAG", JSON.stringify({ consultas: consultasBusqueda.length, dirigidas: hits.prioritarios || 0, mejorPuntaje: mejor, debil: busquedaDebil, fuentes: hits.map((h) => etiquetaFuente(h.source)), candidatos: hits.candidatos }));
     } catch (pineconeErr) {
       // Si Pinecone falla, seguimos sin contexto documental en vez de
       // romper toda la respuesta.
