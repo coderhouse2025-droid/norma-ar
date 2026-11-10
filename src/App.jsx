@@ -196,7 +196,10 @@ function parseTables(text) {
   return text.replace(tableRegex, (block) => {
     const lines = block.trim().split("\n");
     const headerCells = splitTableRow(lines[0]);
-    const bodyRows = lines.slice(2).map(splitTableRow);
+    // Cada fila se ajusta a la cantidad de columnas del encabezado (el modelo a veces omite una celda).
+    const bodyRows = lines.slice(2).map(splitTableRow).map((r) =>
+      r.length < headerCells.length ? [...r, ...Array(headerCells.length - r.length).fill("")] : r.slice(0, headerCells.length)
+    );
     let html = '<table style="width:100%;border-collapse:collapse;margin:.6rem 0;font-size:.83rem">';
     html += "<thead><tr>" + headerCells.map(h =>
       `<th style="text-align:left;padding:5px 9px;border-bottom:1px solid rgba(0,200,232,.35);color:#00c8e8;font-weight:500">${mdInline(h)}</th>`
@@ -247,7 +250,7 @@ const NOT_A_CITATION = /no se (proporcion|aportan|encontr|especific|indica|brind
 function extractCitations(raw) {
   const found = [];
   const seen = new Set();
-  const regex = /\[([^[\]\n]{2,120})\]/g;
+  const regex = /\[([^[\]\n]{2,300})\]/g;
   let m;
   while ((m = regex.exec(raw)) !== null) {
     const label = m[1].trim();
@@ -263,7 +266,7 @@ function extractCitations(raw) {
 // También saca los "falsos corchetes" de ausencia de fuente, aunque no se muestren como chip.
 function stripCitations(raw) {
   return raw
-    .replace(/\[([^[\]\n]{2,120})\]/g, "")
+    .replace(/\[([^[\]\n]{2,300})\]/g, "")
     .replace(/\s*【[^】\n]{1,120}】/g, "") // marcas de cita tipo 【AR 10.12.1】 que a veces emite el modelo
     .replace(/[ \t]{2,}/g, " ");
 }
@@ -352,7 +355,7 @@ function plainForSpeech(raw) {
     .replace(/^#{1,6}\s*/gm, "")
     .replace(/\*\*|__|\*|`/g, "")
     .replace(/^\s*[-•]\s+/gm, "")
-    .replace(/\[[^\]\n]{2,120}\]/g, "")
+    .replace(/\[[^\]\n]{2,300}\]/g, "")
     .replace(/[ \t]{2,}/g, " ")
     .replace(/\n{2,}/g, ". ")
     .replace(/\n/g, " ")
