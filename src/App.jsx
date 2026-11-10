@@ -268,7 +268,8 @@ function stripCitations(raw) {
   return raw
     .replace(/\[([^[\]\n]{2,300})\]/g, "")
     .replace(/\s*【[^】\n]{1,120}】/g, "") // marcas de cita tipo 【AR 10.12.1】 que a veces emite el modelo
-    .replace(/[ \t]{2,}/g, " ");
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/[ \t]+([.,;:])/g, "$1"); // al sacar una cita queda " ." suelto
 }
 
 // Saca un encabezado final tipo "Fuentes"/"Fuente" (con o sin ### o negrita, con o sin línea
