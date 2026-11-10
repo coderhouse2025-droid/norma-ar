@@ -160,6 +160,9 @@ async function fetchConReintento(url, init, { maxIntentos = 3, maxEsperaMs = 400
 // 1) las preguntas de seguimiento se buscan junto con la pregunta anterior;
 // 2) las preguntas cortas se amplían con términos de la normativa (glosario editable).
 const GLOSARIO_BUSQUEDA = [
+  // Límite de dosis para el público: respondía 0,1 mSv/año (criterio de optimización, requisito 40) en lugar
+  // del límite de 1 mSv/año (requisito 88.a de la AR 10.1.1 rev 4).
+  { siempre: true, patron: /(l[ií]mites?\s+(de\s+)?dosis|dose\s+limits?)[^.?]{0,40}(p[uú]blico|public)|(p[uú]blico|public)[^.?]{0,30}(l[ií]mites?|dose)/i, agregar: "Norma AR 10.1.1 límite de dosis efectiva para miembros del público: 1 mSv por año, promedio de cinco años consecutivos" },
   // Caracterización: "¿Qué es una caracterización?" se mezclaba con la pregunta anterior y la respuesta decía
   // que no había definición, pero está en la Guía AR 13 (definición 5, sobre residuos radiactivos).
   { patron: /caracterizaci[oó]n(?!\s+(?:del?|de\s+la)\s+(?:sitio|emplazamiento|zona|instalaci))/i, agregar: "Caracterización: determinación de las propiedades físicas, químicas y radiológicas de los residuos radiactivos para establecer el tratamiento y acondicionamiento, Guía AR 13" },
@@ -171,7 +174,7 @@ const GLOSARIO_BUSQUEDA = [
   { siempre: true, patron: /informe\s+(preliminar\s+|final\s+)?de\s+seguridad/i, agregar: "contenido del Informe Preliminar de Seguridad e Informe Final de Seguridad de la instalación, Norma AR 4.9.2 Norma AR 4.9.1 Norma AR 3.9.1" },
   // Límites de dosis: se aplica SIEMPRE (aunque la pregunta sea larga). Sin esto, la búsqueda traía el
   // criterio de optimización de la AR 10.1.1 ("5 mSv / 0,1 mSv") en lugar de la sección de límites.
-  { siempre: true, patron: /l[ií]mites?\s+(de\s+)?dosis|dosis\s+(m[aá]xim|permitid|l[ií]mite)|l[ií]mites?\s+(anual|para\s+trabajadores|ocupacional)/i, agregar: "Norma AR 10.1.1 D.1.7.1 Exposición ocupacional. Límites de dosis para trabajadores: dosis efectiva de 20 mSv por año como promedio en 5 años consecutivos, dosis equivalente en cristalino, piel o extremidades; límites de dosis para miembros del público" },
+  { siempre: true, patron: /l[ií]mites?\s+(de\s+)?dosis|dosis\s+(m[aá]xim|permitid|l[ií]mite)|l[ií]mites?\s+(anual|para\s+trabajadores|ocupacional)|dose\s+limits?|annual\s+(effective\s+)?dose|occupational\s+(dose|exposure)|dose\s+(for|to)\s+(the\s+)?workers/i, agregar: "Norma AR 10.1.1 D.1.7.1 Exposición ocupacional. Límites de dosis para trabajadores: dosis efectiva de 20 mSv por año como promedio en 5 años consecutivos, dosis equivalente en cristalino, piel o extremidades; límites de dosis para miembros del público" },
   { patron: /\bcnea\b|comisi[oó]n nacional de energ[ií]a at[oó]mica/i, agregar: "Comisión Nacional de Energía Atómica CNEA institución argentina organismo descentralizado misión funciones historia" },
   { patron: /\binvap\b/i, agregar: "INVAP empresa argentina diseño construcción y exportación de reactores nucleares" },
   { patron: /dosis|l[ií]mites?|exposici[oó]n|radiaci[oó]n/i, agregar: "límites de dosis para trabajadores y miembros del público, exposición ocupacional, Norma AR 10.1.1 Norma Básica de Seguridad Radiológica", salvo: /colectiv|efectiv|equivalent|comprometid|absorbid|definici/i, agregarSalvo: "Norma AR 10.1.1 Norma Básica de Seguridad Radiológica definiciones; D.1.7.1 límites de dosis para trabajadores" },
@@ -249,7 +252,38 @@ function etiquetaFuente(source) {
   const m = s.match(/^(?:ar[_-])?(\d{1,2})-(\d{1,2})-(\d{1,2})[_-]?r(\d+)(?:_\d+)?(?:\.pdf)?$/i);
   if (m) return `Norma AR ${m[1]}.${m[2]}.${m[3]} rev ${parseInt(m[4], 10)}`;
   // Las guías se citan siempre como "Guía AR N" (en el índice algunas vienen como "GUÍA AR N").
-  return s.replace(/\.pdf$/i, "").replace(/^gu[íi]a\b/i, "Guía");
+  if (/^Acuerdo de 13 de diciembre de 1991/i.test(s)) return "Acuerdo Cuatripartito (13 de diciembre de 1991)";
+  const etiqueta = s.replace(/\.pdf$/i, "").replace(/^gu[íi]a\b/i, "Guía");
+  // Las citas entre corchetes de más de ~120 caracteres no se reconocen como referencia en la interfaz.
+  return etiqueta.length > 110 ? `${etiqueta.slice(0, 107).trimEnd()}…` : etiqueta;
+}
+
+// Control de números: busca en la respuesta valores con unidad (mSv, años, %, etc.) que NO aparezcan en los
+// textos recuperados. No detecta un número que sí está en los textos pero se atribuye al concepto equivocado.
+const UNIDADES_NUM = "mSv|µSv|μSv|Sv|mGy|Gy|MBq|GBq|TBq|kBq|Bq|años?|meses|días?|horas?|%|kg|km|cm|mm|MW|kW";
+function candidatosNumero(t) {
+  const n = String(t).replace(/\s/g, "");
+  const out = new Set([String(Number(n.replace(",", ".")))]);
+  if (/^\d{1,3}(\.\d{3})+$/.test(n)) out.add(String(Number(n.replace(/\./g, ""))));
+  return out;
+}
+function unidadNorm(u) {
+  return u.toLowerCase().replace("µ", "u").replace("μ", "u").replace(/^años?$/, "año").replace(/^d[ií]as?$/, "dia").replace(/^horas?$/, "hora");
+}
+function numerosSinRespaldo(respuesta, textosFuente) {
+  // Se compara el par número + unidad ("5 mSv"): que el "5" aparezca en otro lugar ("5 años") no lo respalda.
+  const re = new RegExp(`(\\d+(?:[.,]\\d+)*)\\s*(${UNIDADES_NUM})(?![\\p{L}])`, "giu");
+  const conocidos = new Set();
+  for (const m of textosFuente.matchAll(re)) candidatosNumero(m[1]).forEach((x) => conocidos.add(`${x}|${unidadNorm(m[2])}`));
+  const sinRespaldo = [];
+  for (const m of respuesta.matchAll(re)) {
+    const u = unidadNorm(m[2]);
+    if (![...candidatosNumero(m[1])].some((x) => conocidos.has(`${x}|${u}`))) {
+      const v = `${m[1]} ${m[2]}`;
+      if (!sinRespaldo.includes(v)) sinRespaldo.push(v);
+    }
+  }
+  return sinRespaldo.slice(0, 5);
 }
 
 // Cantidad mínima de guías que se intenta incluir entre los fragmentos (si hay guías pertinentes).
@@ -347,7 +381,7 @@ export default async function handler(req, res) {
       'Usá estos fragmentos como base de la respuesta. Los que empiezan con "Guía" son guías orientativas de la ARN, no la norma: aclaralo, explicá primero lo que establece la norma y después lo que recomienda la guía, y citá cada una en su propio corchete final. No indiques número de página. Reglas de precisión: (1) citá códigos y títulos de normas tal cual figuran en los fragmentos, sin inventar ni reformular títulos; (2) si la consulta pide valores o límites y no figuran en los fragmentos, decilo y no los completes con cifras "internacionales" ni de memoria; (3) no atribuyas a una norma o guía lo que dice otra, ni apliques valores de una guía a un caso distinto del que la guía describe; (4) si la consulta es muy general o ambigua, respondé solo lo que sí figura en los fragmentos e indicá qué precisión necesitás; (5) si los fragmentos no responden la pregunta (o solo en parte), decí explícitamente que no figura en la documentación consultada: no completes con datos de memoria sobre instalaciones, ubicaciones, potencias, cargos, comités, decretos, fechas ni límites de dosis; (6) cada afirmación debe poder rastrearse a un fragmento: ante la duda, omitila; (7) no presentes como "límite de dosis" un valor que en el fragmento aparece como criterio de optimización, restricción de dosis, nivel de referencia, nivel de exención o dosis colectiva por unidad de energía: los límites de dosis son solo los que el texto llama "límites de dosis" (en la AR 10.1.1, sección D.1.7.1 para trabajadores); si un fragmento aparece cortado y no se ve la condición a la que pertenece un valor, no lo uses como regla general; (8) en la AR 10.1.1, una frase del tipo "ningún trabajador puede recibir una dosis efectiva superior a X mSv en un año y ningún miembro del público superior a Y mSv … no es necesario demostrar que los sistemas están optimizados" es un criterio para NO exigir la demostración de optimización: no es un límite de dosis y no debe presentarse como tal. Los límites de dosis son los que el texto llama "límites de dosis" (para trabajadores, sección D.1.7.1); si esa sección no está en los fragmentos recibidos, decí que el valor debe consultarse en la AR 10.1.1 en lugar de dar un número.';
 
     const INSTRUCCION_AUSENCIA =
-      ' Cuando los fragmentos no cubran la consulta, no afirmes que la normativa no lo establece ni que "no se detalla". En ese caso: (1) empezá la respuesta con la frase "No encontré en la documentación consultada información sobre …" (completá con el tema); (2) NO cites fuentes entre corchetes (no respaldan nada); (3) NO inventes nombres de normas ni uses marcadores como "Norma AR X.Y.Z", y no afirmes ni sugieras que exista normativa sobre ese tema (no digas "la normativa que trate sobre…" ni "la serie de normas AR correspondientes"); (4) podés aclarar en una frase qué sí cubre la documentación consultada (normas y guías de la ARN, leyes y tratados); (5) cerrá con esta frase exacta: "Para confirmar si existe regulación específica sobre este tema, consultá directamente a la ARN y verificá en el texto oficial."';
+      ' Usá la frase "No encontré…" SOLO si ningún fragmento trata el tema de la consulta. Si los fragmentos cubren el tema aunque sea en parte (por ejemplo una definición, un requisito o una norma que lo trate), respondé con lo que dicen, citá su fuente y aclará qué aspecto puntual no figura. Cuando ningún fragmento trate el tema: (1) empezá la respuesta con "No encontré en la documentación consultada información sobre …" (completá con el tema); (2) NO cites fuentes entre corchetes (no respaldan nada); (3) NO inventes nombres de normas ni uses marcadores como "Norma AR X.Y.Z", y no afirmes ni sugieras que exista normativa sobre ese tema (no digas "la normativa que trate sobre…" ni "la serie de normas AR correspondientes"); (4) podés aclarar en una frase qué sí cubre la documentación consultada (normas y guías de la ARN, leyes y tratados); (5) cerrá con esta frase exacta: "Para confirmar si existe regulación específica sobre este tema, consultá directamente a la ARN y verificá en el texto oficial."';
     const INSTRUCCION_GUIAS =
       ' Si entre los fragmentos hay guías ("Guía AR N") que traten el tema, mencionalas en la respuesta como orientativas y citá cada una en su propio corchete al final, con el nombre exacto del fragmento, por ejemplo [Guía AR 3].';
     const AVISO_BUSQUEDA_DEBIL =
@@ -474,6 +508,7 @@ export default async function handler(req, res) {
       "X-Content-Type-Options": "nosniff",
     });
 
+    let textoCompleto = "";
     const reader = groqRes.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
@@ -502,6 +537,7 @@ export default async function handler(req, res) {
             if (fin === "length") console.warn("Respuesta cortada por max_tokens (finish_reason=length)");
             const delta = parsed.choices?.[0]?.delta?.content;
             if (delta) {
+              textoCompleto += delta;
               res.write(JSON.stringify({ type: "delta", text: delta }) + "\n");
             }
           } catch {
@@ -512,6 +548,20 @@ export default async function handler(req, res) {
     } catch (streamErr) {
       console.error("Error leyendo el stream de Groq:", streamErr);
       res.write(JSON.stringify({ type: "error", message: "Se interrumpió la generación de la respuesta." }) + "\n");
+    }
+
+    // Aviso si la respuesta trae valores numéricos que no figuran en los textos recuperados.
+    try {
+      if (fragmentos.length > 0 && textoCompleto) {
+        const dudosos = numerosSinRespaldo(textoCompleto, fragmentos.join("\n"));
+        if (dudosos.length > 0) {
+          console.warn("Números sin respaldo en los textos recuperados:", dudosos.join(", "));
+          const aviso = `\n\n**Aviso:** no pude confirmar literalmente en los textos consultados estos valores: ${dudosos.join(", ")}. Verificalos en la norma oficial antes de usarlos.`;
+          res.write(JSON.stringify({ type: "delta", text: aviso }) + "\n");
+        }
+      }
+    } catch (avisoErr) {
+      console.error("Error en el control de números:", avisoErr);
     }
 
     res.write(JSON.stringify({ type: "done" }) + "\n");
