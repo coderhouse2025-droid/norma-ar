@@ -104,9 +104,9 @@ El proyecto integra conocimientos del marco regulatorio nuclear (la Ley 24.804, 
 
 ---
 
-## 📊 Descripción del producto
+## 📊 Descripción del Asistente
 
-Este chatbot responde consultas técnicas y jurídicas sobre la normativa nuclear argentina: legislación vigente, normas y guías regulatorias de la ARN, protección radiológica, licencias, residuos radiactivos y tratados internacionales.
+Este herramienta responde consultas técnicas y jurídicas sobre la normativa nuclear argentina: legislación vigente, normas y guías regulatorias de la ARN, protección radiológica, licencias, residuos radiactivos y tratados internacionales.
 
 Las respuestas se generan combinando un modelo de lenguaje (GPT-OSS 120B) con búsqueda semántica sobre documentos oficiales indexados — una arquitectura conocida como **RAG (Retrieval-Augmented Generation)**. Cada respuesta cita los documentos en los que se basó, mostrados como etiquetas separadas debajo del texto: **doradas** para normas y leyes, **celestes** para guías regulatorias. Si la respuesta empieza diciendo que no encontró información sobre el tema, las etiquetas no se muestran (no hay fuente que respaldar).
 
