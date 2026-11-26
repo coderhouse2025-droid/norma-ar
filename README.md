@@ -112,7 +112,8 @@ Las respuestas se generan combinando un modelo de lenguaje (GPT-OSS 120B) con b�
 
 **Funciones de la interfaz:** accesos rápidos por tema, copiar respuesta, exportar la conversación a `.txt`, leer la respuesta en voz alta (con la voz del navegador), contador de caracteres, tablas en formato markdown y un enlace a un formulario de comentarios para los visitantes.
 
-<img width="1024" height="1536" alt="ChatGPT Image 22 ago 2026, 01_28_32 p m" src="https://github.com/user-attachments/assets/0355da97-d466-44f8-a539-afe032ef6c6d" />
+<img width="756" height="1344" alt="Banner" src="https://github.com/user-attachments/assets/afdc47ef-96d8-43fc-9107-610749e11d29" />
+
 
 ### Normas y guías: una distinción que el asistente respeta
 
